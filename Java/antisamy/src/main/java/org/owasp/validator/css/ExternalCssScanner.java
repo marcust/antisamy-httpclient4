@@ -36,10 +36,13 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.ResourceBundle;
 
-import org.apache.commons.httpclient.HttpClient;
-import org.apache.commons.httpclient.HttpContentTooLargeException;
-import org.apache.commons.httpclient.methods.GetMethod;
-import org.apache.commons.httpclient.params.HttpConnectionManagerParams;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.BasicResponseHandler;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.params.HttpConnectionParams;
+import org.apache.http.params.HttpParams;
+import org.apache.http.util.EntityUtils;
 import org.owasp.validator.html.InternalPolicy;
 import org.owasp.validator.html.Policy;
 import org.owasp.validator.html.ScanException;
@@ -49,7 +52,7 @@ import org.w3c.css.sac.InputSource;
 
 public class ExternalCssScanner extends CssScanner {
 
-	public ExternalCssScanner(InternalPolicy policy, ResourceBundle messages) {
+	public ExternalCssScanner(final InternalPolicy policy, final ResourceBundle messages) {
 		super(policy, messages);
 	}
 
@@ -70,8 +73,8 @@ public class ExternalCssScanner extends CssScanner {
 	 * @throws ScanException
 	 *                 if an error occurs during scanning
 	 */
-	protected void parseImportedStylesheets(LinkedList stylesheets, CssHandler handler,
-			ArrayList errorMessages, int sizeLimit) throws ScanException {
+	protected void parseImportedStylesheets(final LinkedList stylesheets, final CssHandler handler,
+			final ArrayList errorMessages, int sizeLimit) throws ScanException {
 			
 			int importedStylesheets = 0;
 			
@@ -79,35 +82,33 @@ public class ExternalCssScanner extends CssScanner {
 			// continue parsing the nested styles. Note this only happens
 			// if CSS importing was enabled in the policy file
 			if (!stylesheets.isEmpty()) {
-			    HttpClient httpClient = new HttpClient();
+			    final HttpClient httpClient = new DefaultHttpClient();
 			
 			    // Ensure that we have appropriate timeout values so we don't
 			    // get DoSed waiting for returns
-			    HttpConnectionManagerParams params = httpClient
-				    .getHttpConnectionManager().getParams();
-			
+			    final HttpParams params = httpClient.getParams();
+			    
 			    int timeout = DEFAULT_TIMEOUT;
 			
 			    try {
 				timeout = Integer.parseInt(policy
 					.getDirective(Policy.CONNECTION_TIMEOUT));
-			    } catch (NumberFormatException nfe) {
+			    } catch (final NumberFormatException nfe) {
 			    }
 			
-			    params.setConnectionTimeout(timeout);
-			    params.setSoTimeout(timeout);
-			    httpClient.getHttpConnectionManager().setParams(params);
+			    HttpConnectionParams.setConnectionTimeout(params,timeout);
+			    HttpConnectionParams.setSoTimeout(params,timeout);
 			
 			    int allowedImports = Policy.DEFAULT_MAX_STYLESHEET_IMPORTS;
 			    try {
 				allowedImports = Integer.parseInt(policy
 					.getDirective("maxStyleSheetImports"));
-			    } catch (NumberFormatException nfe) {
+			    } catch (final NumberFormatException nfe) {
 			    }
 			
 			    while (!stylesheets.isEmpty()) {
 			
-				URI stylesheetUri = (URI) stylesheets.removeFirst();
+				final URI stylesheetUri = (URI) stylesheets.removeFirst();
 			
 				if (++importedStylesheets > allowedImports) {
 				    errorMessages.add(ErrorMessageUtil.getMessage(
@@ -121,15 +122,14 @@ public class ExternalCssScanner extends CssScanner {
 				    continue;
 				}
 			
-				GetMethod stylesheetRequest = new GetMethod(stylesheetUri
+				final HttpGet stylesheetRequest = new HttpGet(stylesheetUri
 					.toString());
 			
 				byte[] stylesheet = null;
 				try {
 				    // pull down stylesheet, observing size limit
-				    httpClient.executeMethod(stylesheetRequest);
-				    stylesheet = stylesheetRequest.getResponseBody(sizeLimit);
-				} catch (HttpContentTooLargeException hctle) {
+				    stylesheet = httpClient.execute(stylesheetRequest, new LimitedResponseHandler(sizeLimit) );
+				} catch (final HttpContentTooLargeException hctle) {
 				    errorMessages
 					    .add(ErrorMessageUtil
 						    .getMessage(
@@ -141,7 +141,7 @@ public class ExternalCssScanner extends CssScanner {
 										    .toString()),
 								    String.valueOf(policy
 									    .getMaxInputSize()) }));
-				} catch (IOException ioe) {
+				} catch (final IOException ioe) {
 				    errorMessages.add(ErrorMessageUtil
 					    .getMessage(
 					    	messages,
@@ -158,12 +158,12 @@ public class ExternalCssScanner extends CssScanner {
 				    sizeLimit -= stylesheet.length;
 			
 				    try {
-					InputSource nextStyleSheet = new InputSource(
+					final InputSource nextStyleSheet = new InputSource(
 						new InputStreamReader(new ByteArrayInputStream(
 							stylesheet)));
 					parser.parseStyleSheet(nextStyleSheet);
 			
-				    } catch (IOException ioe) {
+				    } catch (final IOException ioe) {
 					throw new ScanException(ioe);
 				    }
 			
